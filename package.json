@@ -1,0 +1,22 @@
+{
+  "name": "exports-imports-lambda",
+  "version": "1.0.0",
+  "description": "Standalone SQS-triggered Lambda worker for async exports (and, later, imports). Ported from dashboard-backend's BullMQ exportJob worker.",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "bash deploy.sh",
+    "test:local": "node scripts/invoke-local.js",
+    "send": "node scripts/send-test-message.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-athena": "^3.859.0",
+    "@aws-sdk/client-s3": "^3.859.0",
+    "@aws-sdk/client-sqs": "^3.859.0",
+    "bluebird": "^3.7.2",
+    "mysql": "^2.18.1",
+    "redis": "^4.6.13"
+  },
+  "keywords": ["aws", "lambda", "sqs", "exports", "imports", "athena"],
+  "author": "",
+  "license": "MIT"
+}

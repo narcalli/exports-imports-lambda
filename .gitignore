@@ -1,0 +1,7 @@
+node_modules/
+function.zip
+.env
+*.log
+.DS_Store
+trust-policy.json
+*.tmp.json
