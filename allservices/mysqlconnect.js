@@ -19,14 +19,21 @@ const Promise = require("bluebird");
 Promise.promisifyAll(require("mysql/lib/Connection").prototype);
 Promise.promisifyAll(require("mysql/lib/Pool").prototype);
 
+const POOL_LIMIT = parseInt(process.env.MYSQL_POOL_LIMIT, 10) || 10;
+
 const mysqlConnection = mysql.createPool({
   host: process.env.MYSQL_HOST,
   user: process.env.MYSQL_USER,
   password: process.env.MYSQL_PASSWORD,
   database: process.env.MYSQL_DATABASE,
-  connectionLimit: parseInt(process.env.MYSQL_POOL_LIMIT, 10) || 10,
+  connectionLimit: POOL_LIMIT,
+  // Bounds how many callers can queue waiting for a free connection once
+  // the pool is at connectionLimit, instead of queueing without limit.
+  queueLimit: POOL_LIMIT,
   connectTimeout: 60000,
-  acquireTimeout: 60000,
+  acquireTimeout: 60000, // only covers connect+ping for a NEW physical
+  // connection, not time spent waiting in the pool's internal queue for an
+  // existing one to free up — see getConnectionAsync override below.
   timeout: 60000,
   ssl: { rejectUnauthorized: true },
   multipleStatements: true,
@@ -43,5 +50,43 @@ mysqlConnection.on("connection", function (connection) {
 mysqlConnection.on("error", (error) => {
   console.log("mysqlConnection error", error && error.message);
 });
+
+// The pool's internal wait queue has no timeout of its own, so a caller can
+// wait forever for a connection to free up. Overriding getConnectionAsync
+// here covers every caller without touching each call site.
+const ACQUIRE_TIMEOUT_MS = 15000;
+const rawGetConnectionAsync = mysqlConnection.getConnectionAsync.bind(mysqlConnection);
+mysqlConnection.getConnectionAsync = function timedGetConnectionAsync() {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new Error(
+          `Timed out after ${ACQUIRE_TIMEOUT_MS}ms waiting for a MySQL connection from the pool (exports-imports-lambda)`
+        )
+      );
+    }, ACQUIRE_TIMEOUT_MS);
+
+    rawGetConnectionAsync().then(
+      (conn) => {
+        if (settled) {
+          conn.release();
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(conn);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+};
 
 module.exports = mysqlConnection;
